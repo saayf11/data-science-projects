@@ -1,0 +1,618 @@
+---
+title: "STAT1379_ASSIGNMENT2"
+author: "Mohammed Saif Ur Rahman(48941298)"
+format: html
+editor: visual
+bibliography: references.bib
+---
+
+## EXERCISE 1: (PISA 2022 Data Analysis)
+
+```{r}
+# Load required packages
+library(tidyverse)
+library(ggrepel)
+library(here)
+library(readr)
+
+
+# Load PISA dataset
+pisa <- read_csv(here("data-raw", "pisa_2022.csv"))
+
+
+
+
+# Inspect data
+head(pisa)
+str(pisa)
+
+```
+
+```{r}
+# Plot 1: Avg reading VS Avg Math scores
+#| label: plot1
+#| fig.width: 7
+#| fig.height: 5
+#| message: FALSE
+#| warning: FALSE
+
+library(tidyverse)
+library(ggrepel)
+
+# Compute mean scores for each country
+pisa_summary <- pisa %>%
+  group_by(country) %>%
+  summarise(
+    mean_math = mean(math, na.rm = TRUE),
+    mean_read = mean(read, na.rm = TRUE)
+  )
+
+# Create the plot
+ggplot(pisa_summary, aes(x = mean_math, y = mean_read)) +
+  geom_point(size = 2) +
+  geom_point(data = filter(pisa_summary, country == "AUS"), 
+             aes(x = mean_math, y = mean_read), 
+             color = "red", size = 3) +
+  geom_label_repel(aes(label = country), 
+                   color = "black",
+                   box.padding = 0.35,
+                   point.padding = 0.2,
+                   segment.color = "black",
+                   max.overlaps = Inf ) +
+  labs(
+    title = "Average reading against average maths for each country",
+    x = "mean scores in mathematics",
+    y = "mean scores in reading"
+  ) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(size = 13, face = "bold"),
+    plot.subtitle = element_text(size = 11),
+    axis.title = element_text(size = 11)
+  )
+# Where does Australia stand:
+pisa_summary %>% filter(country == "AUS")
+
+```
+
+```{r}
+# Plot 2: Gender differences (Female - Male)
+
+# Load required libraries
+library(tidyverse)
+library(ggplot2)
+
+# Calculate mean scores by country and gender
+gender_means <- pisa %>%
+  group_by(country, gender) %>%
+  summarise(
+    mean_math = mean(math, na.rm = TRUE),
+    mean_read = mean(read, na.rm = TRUE),
+    mean_sci  = mean(science, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Calculate gender differences (female - male)
+gender_diff <- gender_means %>%
+  pivot_wider(
+    names_from = gender,
+    values_from = c(mean_math, mean_read, mean_sci)
+  ) %>%
+  mutate(
+    diff_math = mean_math_female - mean_math_male,
+    diff_read = mean_read_female - mean_read_male,
+    diff_sci  = mean_sci_female  - mean_sci_male
+  ) %>%
+  select(country, diff_math, diff_read, diff_sci)
+
+# Reshape for plotting 
+plot_data <- gender_diff %>%
+  pivot_longer(
+    cols = c(diff_math, diff_read, diff_sci),
+    names_to = "subject",
+    values_to = "diff"
+  ) %>%
+  mutate(
+    subject = case_when(
+      subject == "diff_math" ~ "mean_math",
+      subject == "diff_read" ~ "mean_read",
+      subject == "diff_sci"  ~ "mean_sci"
+    ),
+    diff_positive = diff > 0  # TRUE = girls > boys
+  )
+
+# Create the plot
+plot2_final <- ggplot(plot_data, aes(x = diff, y = reorder(country, diff), color = diff_positive)) +
+  geom_vline(xintercept = 0, linetype = "solid", color = "black", linewidth = 0.4) +
+  geom_point(size = 2.5) +
+  facet_wrap(~ subject, nrow = 1, scales = "free_x") +
+  # Boys/Girls labels
+  annotate("text", x = -55, y = 2, label = "Boys", size = 3) +
+  annotate("text", x =  55, y = 2, label = "Girls", size = 3) +
+  coord_cartesian(xlim = c(-60, 60)) +
+  scale_color_manual(
+    values = c("FALSE" = "#F8768D", "TRUE" = "#00BFA4"),
+    labels = c("FALSE" = "Boys > Girls", "TRUE" = "Girls > Boys"),
+    name = "Gender advantage"
+  ) +
+  labs(
+    title = "Average gender difference (Female − Male) per Country",
+    subtitle = "Gender gap in reading is universal, but maths and science gaps vary.",
+    x = "Difference (Female − Male)",
+    y = "Country"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    strip.text = element_text(face = "bold"),
+    axis.text.y = element_text(size = 8),
+    legend.position = "bottom"
+  )
+
+# Display Plot 
+plot2_final
+```
+
+## EXERCISE 2:
+
+### Task A:
+
+```{r}
+library(tidyverse)
+library(lubridate)  # For date handling
+
+# Load datasets
+house_prices <- read_csv(here("data-raw", "aus_median_house_price.csv"))
+gdp_changes  <- read_csv(here("data-raw", "aus_GDP_changes.csv"))
+
+
+# Inspect Data
+head(house_prices)
+head(gdp_changes)
+colnames(house_prices)
+
+
+```
+
+### Task B and C:
+
+```{r}
+# Packages 
+library(readr)
+library(dplyr)
+library(stringr)
+library(lubridate)
+library(tidyr)
+
+# Load Data
+house_prices <- read_csv(here("data-raw", "aus_median_house_price.csv"))
+
+
+# Find the Melbourne Established House (Unstratified) series column
+clean_names <- names(house_prices) %>%
+  str_replace_all("\u00A0", " ") %>%     # replace non-breaking spaces
+  str_squish() %>%                       # collapse multiple spaces
+  str_remove("\\s*;\\s*$")               # drop trailing semicolons
+
+# Pattern we want
+target_pat <- regex("^Median Price of Established House Transfers \\(Unstratified\\)\\s*;\\s*Melbourne\\s*$",
+                    ignore_case = TRUE)
+
+# Locate the column index of the target series
+series_idx <- which(str_detect(clean_names, target_pat))
+
+if (length(series_idx) != 1) {
+  stop("Could not uniquely identify the Melbourne Established House (Unstratified) column.\n",
+       "Matched: ", paste(clean_names[series_idx], collapse = " | "))
+}
+
+# Build a tidy 2-column dataset: Date + Value
+date_col <- names(house_prices)[1]
+
+melb_clean <- house_prices %>%
+  transmute(
+    Date  = my(.data[[date_col]]),         # parse "Mar-2002" -> 2002-03-01
+    Value = as.numeric(.data[[ names(house_prices)[series_idx] ]])
+  ) %>%
+  drop_na(Date, Value) %>%
+  arrange(Date)
+
+# Inpect data
+print(head(melb_clean, 6))
+
+# Plot Melbourne Median House Price (Unstratified)
+library(ggplot2)
+
+ggplot(melb_clean, aes(x = Date, y = Value / 1000)) +
+  geom_line(color = "blue", linewidth = 1) +
+  labs(
+    title = "Median Price of Established House Transfers in Melbourne",
+    subtitle = "Unstratified & Not seasonally adjusted",
+    x = NULL,
+    y = "A$ (000)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(face = "italic"),
+    axis.text.x = element_text(angle = 0, hjust = 0.5)
+  )
+```
+
+### Task D:
+
+```{r}
+# Identifying low-to-negative GDP growth periods (< 0.1%)
+
+library(readr)
+library(dplyr)
+library(lubridate)
+library(stringr)
+library(tidyr)
+
+# Reading each line as raw text (robust to any separators)
+raw_lines <- read_lines(here("data-raw", "aus_GDP_changes.csv"))
+
+
+# Extract a date token (d/m/YYYY) and the first numeric value on the line
+gdp_clean <- tibble(raw = raw_lines) %>%
+  mutate(
+    date_str = str_extract(raw, "\\b\\d{1,2}/\\d{1,2}/\\d{4}\\b"),
+    val_str  = str_extract(raw, "[-+]?\\d+(?:\\.\\d+)?")
+  ) %>%
+  mutate(
+    Date       = suppressWarnings(dmy(date_str)),
+    GDP_change = as.numeric(val_str)
+  ) %>%
+  filter(!is.na(Date)) %>%
+  arrange(Date)
+
+# Useing the overlapping time window with melb_clean
+min_date <- max(min(gdp_clean$Date, na.rm = TRUE), min(melb_clean$Date, na.rm = TRUE))
+max_date <- min(max(gdp_clean$Date, na.rm = TRUE), max(melb_clean$Date, na.rm = TRUE))
+
+gdp_in_range <- gdp_clean %>%
+  filter(Date >= min_date, Date <= max_date) %>%
+  mutate(low_GDP_growth = GDP_change < 0.1)
+
+gdp_in_range
+
+
+
+
+```
+
+### Task E
+
+```{r}
+library(readr)
+library(dplyr)
+library(stringr)
+library(purrr)
+library(lubridate)
+library(ggplot2)
+library(tidyr)
+library(here)  # or use here::here() below
+
+# Read the GDP file as raw lines (character vector)
+raw_lines <- read_lines(here("data-raw", "aus_GDP_changes.csv"))
+
+# Parse each line:
+#   - date_str: "d/m/YYYY"
+#   - GDP_change: take the LAST numeric on the line
+gdp_clean <- tibble(raw = raw_lines) %>%
+  mutate(
+    date_str = str_extract(raw, "\\b\\d{1,2}/\\d{1,2}/\\d{4}\\b"),
+    nums     = str_extract_all(raw, "[-+]?\\d+(?:\\.\\d+)?")
+  ) %>%
+  mutate(
+    Date       = suppressWarnings(dmy(date_str)),
+    GDP_change = suppressWarnings(as.numeric(map_chr(nums, ~ if (length(.x)) tail(.x, 1) else NA_character_)))
+  ) %>%
+  filter(!is.na(Date)) %>%
+  arrange(Date)
+
+# Keep only quarters overlapping the house-price data (melb_clean)
+house_rng <- range(melb_clean$Date, na.rm = TRUE)
+
+overlap_q <- gdp_clean %>%
+  mutate(Quarter = floor_date(Date, "quarter")) %>%
+  arrange(Quarter) %>%
+  distinct(Quarter, .keep_all = TRUE) %>%
+  filter(Quarter >= floor_date(house_rng[1], "quarter"),
+         Quarter <= floor_date(house_rng[2], "quarter"))
+
+# Shading bands: quarters where GDP change < 0.1%
+shade_df <- overlap_q %>%
+  filter(GDP_change < 0.1) %>%
+  transmute(xmin = Quarter, xmax = Quarter %m+% months(3))
+
+# Plot
+ggplot(melb_clean, aes(x = Date, y = Value / 1000)) +
+  geom_rect(data = shade_df,
+            aes(xmin = xmin, xmax = xmax, ymin = -Inf, ymax = Inf),
+            inherit.aes = FALSE, fill = "grey60", alpha = 0.3) +
+  geom_line(color = "blue", linewidth = 1) +
+  labs(
+    title = "Median Price of Established House Transfers in Melbourne",
+    subtitle = "Shaded areas: quarters where GDP change < 0.1%",
+    x = NULL, y = "A$ (000)"
+  ) +
+  theme_minimal(base_size = 14)
+
+
+```
+
+## EXERCISE 3:
+
+### Connect to DB
+
+```{r}
+# Load libraries 
+library(DBI)
+library(duckdb)
+library(dplyr)
+library(dbplyr)
+library(readr)
+library(here)
+
+# Connect to DuckDB
+con <- dbConnect(duckdb::duckdb())
+
+# Loading CSVs
+actors  <- read_csv(here("data-raw", "Actors.csv"))
+castings <- read_csv(here("data-raw", "Castings.csv"))
+directors <- read_csv(here("data-raw", "Directors.csv"))
+movies <- read_csv(here("data-raw", "Movies.csv"))
+movies_and_directors <- read_csv(here("data-raw", "MoviesAndDirectors.csv"))
+
+
+# Copying to DuckDB
+dbWriteTable(con, "actors", actors, overwrite = TRUE)
+dbWriteTable(con, "castings", castings, overwrite = TRUE)
+dbWriteTable(con, "directors", directors, overwrite = TRUE)
+dbWriteTable(con, "movies", movies, overwrite = TRUE)
+dbWriteTable(con, "movies_and_directors", movies_and_directors, overwrite = TRUE)
+
+```
+
+### 3(a): Most Common Director–Actor Partnerships
+
+```{r}
+# Create dbplyr table references
+actors_db    <- tbl(con, "actors")
+castings_db  <- tbl(con, "castings")
+directors_db <- tbl(con, "directors")
+movies_db    <- tbl(con, "movies")
+
+# Select and rename key columns to avoid clashes 
+actors_q    <- actors_db    %>% select(ActorID, actor_name = Name)
+directors_q <- directors_db %>% select(DirectorID, director_name = Name)
+movies_q    <- movies_db    %>% select(MovieID, DirectorID)
+castings_q  <- castings_db  %>% select(MovieID, ActorID)
+
+# Join all tables and count partnerships
+partnerships <- actors_q %>%
+  left_join(castings_q,  by = "ActorID") %>%
+  left_join(movies_q,    by = "MovieID") %>%
+  left_join(directors_q, by = "DirectorID") %>%
+  filter(!is.na(director_name), !is.na(actor_name)) %>%
+  group_by(director_name, actor_name) %>%
+  summarise(n_movies = n_distinct(MovieID), .groups = "drop") %>%
+  arrange(desc(n_movies))
+
+# Show the top 10 partnerships 
+partnerships %>% head(10) %>% collect()
+```
+
+### 3(b).SQL Query Insights
+
+```{r}
+# Clear column renaming before joining
+actors_q    <- actors_db    %>% rename(ActorName = Name)
+directors_q <- directors_db %>% rename(DirectorName = Name)
+
+q01 <- actors_q %>%
+  left_join(castings_db,  by = "ActorID") %>%
+  left_join(movies_db,    by = "MovieID") %>%
+  left_join(directors_q,  by = "DirectorID") %>%
+  transmute(
+    ActorID    = ActorID,
+    Name.x     = ActorName,     # actor
+    CastingID  = CastingID,
+    MovieID    = MovieID,
+    Character  = Character,
+    Title      = Title,
+    Year       = Year,
+    DirectorID = DirectorID,
+    Name.y     = DirectorName   # director
+  )
+
+# Outer query: group by actor and count directors + movies
+result <- q01 %>%
+  group_by(Name.x) %>%
+  summarise(
+    unique_directors = n_distinct(Name.y),
+    total_movies     = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(unique_directors))
+
+# Show the top 20 actors 
+result %>% head(20) %>% collect()
+
+
+```
+
+### Insighits:
+
+**This query identifies which actors have collaborated with the greatest number of unique directors. Actors with high unique_directors values have appeared in films by a wide range of directors, indicating versatility about them or broad industry Popularity. In contrast, those with a high total_movies count but fewer unique directors may show strong, repeated collaborations with specific directors**
+
+## EXERCISE 4:
+
+(I am aiming for High Distinction for this Exercise)
+
+```{r}
+# Importing packages
+library(knitr)
+library(broom)
+
+
+# Simple 2x2 contingency table
+tab <- matrix(
+  c(3, 33,   # Men: studying, not-studying
+    27, 9),  # Women: studying, not-studying
+  nrow = 2,
+  byrow = TRUE,
+  dimnames = list(
+    c("Studying", "Not studying"),
+    c("Men", "Women")
+  )
+)
+
+# Display table
+knitr::kable(tab, caption = "Table 1: Number of teenagers studying vs not studying by gender")
+
+
+```
+
+### (Pass/Credit) Chi-squared test section:
+
+### Chi-squared test (two-sided)
+
+We test independence between *Studying* and *Gender*.\
+Let $E_{ij}$ be the expected counts under independence;\
+the Pearson statistic\
+$\chi^2 = \sum (O_{ij} - E_{ij})^2 / E_{ij}$\
+follows approximately a $\chi^2_{(1)}$ distribution for a 2×2 table (e.g., @agresti2013categ).
+
+```{r}
+# Create the 2x2 contingency table
+tab <- matrix(c(3, 27, 33, 9),
+              nrow = 2,
+              byrow = TRUE,
+              dimnames = list(
+                "Studying" = c("Yes", "No"),
+                "Gender" = c("Men", "Women")
+              ))
+
+# Perform Chi-squared test (no Yates’ correction)
+chisq_out <- chisq.test(tab, correct = FALSE)
+
+# Display results 
+library(broom)
+library(knitr)
+
+kable(tidy(chisq_out), digits = 4,
+      caption = "Chi-squared test (no continuity correction)")
+
+
+
+```
+
+### (Distinction) Fisher’s exact test section:
+
+## Fisher’s exact test (two-sided)
+
+Fisher’s test conditions on the margins and uses the hypergeometric distribution to obtain an exact p-value without large-sample approximation (e.g., @mehta1994exact).
+
+```{r}
+fisher_out <- fisher.test(tab, alternative = "two.sided")
+kable(tidy(fisher_out), digits = 4, caption = "Fisher’s exact test (two-sided)")
+
+```
+
+### Comparison and Discussion
+
+Both the Chi-squared test and Fisher’s exact test were used to check if there’s a link between gender and whether someone is studying. In this case, both tests gave very small p-values (well below 0.05), which means we can confidently say that studying behaviour differs between males and females. The Chi-squared test is an approximate method that works well when sample sizes are large, while Fisher’s exact test calculates the exact probability and is more reliable when the data are smaller or unbalanced. Since a few cells in our table have small counts, Fisher’s test is technically more appropriate here, but it’s reassuring that both methods reached the same conclusion. Overall, both tests point to a clear difference between the two groups.
+
+### Simulation Study
+
+```{r}
+simulate_setting <- function(n_m, n_w, p, nsim = 10000) {
+  sm <- rbinom(nsim, size = n_m, prob = p)  # Men studying
+  sw <- rbinom(nsim, size = n_w, prob = p)  # Women studying
+  nm <- n_m - sm
+  nw <- n_w - sw
+
+  p_chi <- numeric(nsim)
+  p_fis <- numeric(nsim)
+
+  for (i in seq_len(nsim)) {
+    tab_i <- matrix(c(sm[i], nm[i], sw[i], nw[i]), nrow = 2, byrow = TRUE)
+    p_chi[i] <- suppressWarnings(chisq.test(tab_i, correct = FALSE)$p.value)
+    p_fis[i] <- fisher.test(tab_i, alternative = "two.sided")$p.value
+  }
+
+  tibble(method = rep(c("chisq","fisher"), each = nsim),
+         pvalue = c(p_chi, p_fis))
+}
+
+alphas <- c(0.10, 0.05, 0.01)
+
+res_all <-
+  list(
+    `S1: n=20+20, p=0.2` = simulate_setting(20, 20, 0.2),
+    `S2: n=20+20, p=0.5` = simulate_setting(20, 20, 0.5),
+    `S3: n=100+100, p=0.2`= simulate_setting(100,100,0.2),
+    `S4: n=100+100, p=0.5`= simulate_setting(100,100,0.5)
+  ) |>
+  imap(~ .x |> mutate(setting = .y)) |>
+  bind_rows()
+
+rej_rates <- res_all |>
+  tidyr::crossing(alpha = alphas) |>
+  group_by(setting, method, alpha) |>
+  summarise(reject_prop = mean(pvalue < alpha), .groups = "drop") |>
+  arrange(setting, method, alpha)
+
+kable(rej_rates, digits = 3,
+      caption = "Rejection proportions at nominal α under the true null (10,000 sims per setting).")
+# plot
+ggplot(rej_rates, aes(x = factor(alpha), y = reject_prop, group = method)) +
+  geom_line() + geom_point() +
+  facet_wrap(~ setting, ncol = 2) +
+  geom_hline(aes(yintercept = as.numeric(as.character(alpha))),
+             linetype = 2, colour = "grey40") +
+  labs(x = "α", y = "Rejection proportion",
+       title = "Empirical type I error vs nominal α",
+       subtitle = "Dashed line = nominal α") +
+  theme_minimal(base_size = 12)
+
+```
+
+### Discussion of Simulation results (HD)
+
+The table above shows how often each test rejected the null hypothesis when it was actually true, across 10,000 simulated samples in each of the four settings. These rejection proportions represent the actual Type I error rates at the nominal significance levels of 1%, 5%, and 10%.
+
+Across all settings, the Fisher’s exact test consistently produced lower rejection proportions than the chi-squared test. This means that Fisher’s test is slightly more conservative — it rejects the null hypothesis less often than expected under the true null, especially in smaller samples or when expected counts are low. For example, in Setting 1 (small sample, p = 0.2), the Fisher test’s rejection rate at α = 0.05 was 0.321, while the chi-squared test could not produce reliable results (likely due to very small expected values).
+
+As the sample size increases (Settings 3 and 4), both tests’ rejection proportions move closer to their nominal α levels, showing that the chi-squared approximation becomes more accurate with larger samples. However, Fisher’s test remains slightly conservative even in larger samples.
+
+Overall, the simulation supports the statement that although Fisher’s exact test gives exact p-values, it tends to be conservative, especially when expected frequencies are small. The chi-squared test, while less conservative, relies on large-sample approximations and can be unreliable when cell counts are low.
+
+## EXERCISE 5:
+
+### Installing packages
+
+```{r}
+install.packages(c("usethis", "devtools", "roxygen2", "testthat", "tibble"))
+
+
+```
+
+### Creating package skeleton
+
+```{r}
+library(usethis)
+
+# Replace "multiserverPkg" with your chosen package name (no spaces)
+create_package("Exercise5")
+
+```
+
+### Exercise 5 Summary
+In this task, I built a small R package called Exercise5 that simulates a multi-server queueing system using the Multiserver() function. The package was fully documented with roxygen2, and the raw data file bank.csv was converted into a tidy tibble and stored as a dataset (bank) under the data/ directory. I also added a clear data description file in the R/ folder and implemented unit testing with testthat to make sure the main function behaves correctly.
+Two automated tests were written using testthat to check both the structure and logical behavior of the Multiserver() function. They confirmed that the function outputs a correctly formatted tibble and that service times always begin after arrivals and end after service starts, ensuring the simulation behaves realistically.
+
+All package checks passed with no errors or warnings, and only standard notes about data-raw. Overall, the package runs smoothly, the dataset loads correctly, and the documentation compiles cleanly.
