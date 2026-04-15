@@ -1,0 +1,156 @@
+---
+title: "STAT1379/COMP6179 — Section 1 Report"
+author: "Mohammed Saif Ur Rahman (48941298)"
+params:
+  data_file: "inst/extdata/project2025.csv"
+  alpha: 0.05
+format:
+  html: default
+  pdf: default
+execute:
+  echo: false
+  warning: false
+  message: false
+bibliography: references.bib
+link-citations: true
+---
+
+```{r}
+library(here)
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(gt)        
+library(broom)     
+library(project2025)  
+```
+
+## Abstract
+
+This report analyses anthropometric and behavioural data from 1,000 adults aged 26–45 to explore three research questions: (1) whether a linear relationship exists between height and weight, (2) whether the average height differs between males and females, and (3) whether gender and physical activity levels are associated. Using R and Quarto for reproducible analysis, we apply linear regression (lm()), a two-sample t-test assuming equal variances, and a chi-square test of independence. Results show a statistically significant positive relationship between height and weight (p\<0.05), supporting a linear association. The t-test indicates that mean height differs by gender (p\<0.05), while the chi-square test suggests gender and physical activity are largely independent (p\>0.05). These findings illustrate how classical inference techniques can provide evidence-based insights into human physical and lifestyle characteristics.
+
+## Introduction
+
+This report addresses three questions using a dataset of adults aged 26–45: (i) linear association between Height and Weight; (ii) equality of mean Height across Gender (Male vs Female); and (iii) association between Gender and Physical Activity (None/Moderate/Intense). We use standard inferential tools and a reproducible Quarto workflow [@ggplot2; @r4ds].
+
+## Methodology
+
+**Q1 (Linear regression).**\
+We model the relationship between weight and height as:
+
+$$
+\text{Weight}_i = \beta_0 + \beta_1 \text{Height}_i + \varepsilon_i,
+\qquad
+H_0: \beta_1 = 0,\;
+H_1: \beta_1 \neq 0.
+$$
+
+**Q2 (Two-sample t-test, equal variances).**\
+Let $\mu_M$ and $\mu_F$ represent mean heights for males and females.
+
+$$
+H_0: \mu_M = \mu_F, \qquad
+H_1: \mu_M \neq \mu_F, \quad
+\alpha = 0.05.
+$$
+
+**Q3 (Chi-square test of independence).**\
+With observed counts $O_{ij}$ and expected counts $E_{ij}$:
+
+$$
+H_0: \text{Gender} \perp \text{Physical Activity}, \qquad
+\chi^2 = \sum_{i,j} \frac{(O_{ij} - E_{ij})^2}{E_{ij}}.
+$$
+
+We report the test statistic, degrees of freedom, $p$-value, and a decision at $\alpha = 0.05$.
+
+## Results
+
+```{r}
+# load package and data
+library(project2025)   # my package name
+library(readr)
+
+dat <- readr::read_csv(here::here(params$data_file)) |>
+dplyr::rename(
+ID = ID,
+Gender = gender,
+Height = height,
+Weight = weight,
+PhysicalActivity = phys
+)
+
+
+res1 <- height_weight_lm(dat)
+res2 <- gender_height_ttest(dat)
+res3 <- gender_activity_chisq(dat)
+
+# auto-updating textual decisions
+res1; res2; res3
+# summary of height by gender (for nice descriptive table)
+
+by_gender <- dat |>
+dplyr::group_by(Gender) |>
+dplyr::summarise(
+n = dplyr::n(),
+mean_height = mean(Height),
+sd_height = sd(Height),
+.groups = "drop"
+)
+
+gt(by_gender) |>
+fmt_number(columns = c(mean_height, sd_height), decimals = 2) |>
+tab_header(
+title = md("**Height Summary by Gender**"),
+subtitle = paste0("n = ", nrow(dat))
+)
+
+```
+
+### Plots
+
+### Q1: Height–Weight (Linear Model)
+
+```{r}
+res1$plots$scatter_lm
+```
+
+**Q1 decision (auto):**  
+Slope = `r round(res1$statistic["slope.Height"], 3)`, R² = `r round(res1$statistic["R2"], 3)`, *p* = `r signif(res1$p_value, 4)`.
+
+Decision at α = `r params$alpha`: **`r ifelse(res1$p_value < params$alpha, "Reject H0 (evidence of linear association).", "Fail to reject H0 (no clear linear association).")`**.  
+`r res1$conclusion`
+
+### Q2: Mean Height by Gender (t-test)
+
+```{r}
+res2$plots$box
+
+```
+
+**Q2 decision (auto):**  
+*t* (df = `r round(res2$statistic["df"], 1)`) = `r round(res2$statistic["t"], 3)`, *p* = `r signif(res2$p_value, 4)`.
+
+Male mean = `r round(res2$estimates["male"], 2)` cm; Female mean = `r round(res2$estimates["female"], 2)` cm; Δ (M − F) = `r round(res2$estimates["diff_male_female"], 2)` cm.
+
+Decision at α = `r params$alpha`: **`r ifelse(res2$p_value < params$alpha, "Reject H0 (means differ).", "Fail to reject H0 (means similar).")`**.  
+`r res2$conclusion`
+
+
+### Q3: Gender × Physical Activity (Chi-square)
+
+```{r}
+res3$plots$stack100
+
+```
+
+**Q3 decision (auto):**  
+χ² (df = `r res3$statistic["df"]`) = `r round(res3$statistic["chi_square"], 2)`, *p* = `r signif(res3$p_value, 4)`.
+
+Decision at α = `r params$alpha`: **`r ifelse(res3$p_value < params$alpha, "Reject H0 (associated).", "Fail to reject H0 (independent).")`**.  
+`r res3$conclusion`
+
+
+## Conclusion
+
+We examined three questions on adults aged 26–45. For the height–weight relationship, the estimated slope was `r round(res1$statistic["slope.Height"],3)` with R² = `r round(res1$statistic["R2"],3)`, leading us to **`r ifelse(res1$p_value < params$alpha, "reject", "not reject")`** the null of zero slope at α = `r params$alpha`. The two-sample *t*-test indicated male and female mean heights were **`r ifelse(res2$p_value < params$alpha, "different", "not detectably different")`**. The chi-square test suggested gender and physical activity were **`r ifelse(res3$p_value < params$alpha, "associated", "independent")`**. Conclusions depend on standard assumptions (equal variances for the *t*-test; adequate expected counts for chi-square; basic regression diagnostics).
